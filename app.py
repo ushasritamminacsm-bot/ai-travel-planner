@@ -199,7 +199,7 @@ When to go, when to avoid, and current season conditions.
 ## PACKING LIST
 15 essential items specific to this trip's duration, destination, and activities.
 
-Keep all price estimates realistic for 2024-2025. Use ₹ symbol. Be specific with real place names, real transport options, and real accommodation names where possible.
+Keep all price estimates realistic. Use ₹ symbol. Be specific with real place names, real transport options, and real accommodation names where possible.
 """
 
 # ---------------------------------------------------------
@@ -211,56 +211,26 @@ if submitted:
     elif budget < 500:
         st.error("Please enter a valid budget.")
     else:
-        progress_bar = st.progress(0, text="🧳 Preparing your request...")
-
-        stages = [
-            (15, "📍 Analyzing your travel preferences..."),
-            (35, "🚆 Checking transport & route options..."),
-            (55, "🏨 Finding budget-friendly stays..."),
-            (75, "📅 Building your day-by-day itinerary..."),
-            (90, "💡 Adding money-saving tips & final touches..."),
-        ]
-
-        import threading
-        result = {}
-
-        def call_gemini():
+        # Replaced threading with native st.spinner to prevent connection hangs on hosted clouds
+        with st.spinner("🧳 TripMate AI is building your custom budget travel plan..."):
             prompt = build_prompt()
-            text, error = call_gemini_api(prompt, GEMINI_API_KEY)
-            if error:
-                result["error"] = error
-            else:
-                result["text"] = text
+            plan_text, err_str = call_gemini_api(prompt, GEMINI_API_KEY)
 
-        thread = threading.Thread(target=call_gemini)
-        thread.start()
-
-        i = 0
-        while thread.is_alive():
-            if i < len(stages):
-                pct, msg = stages[i]
-                progress_bar.progress(pct, text=msg)
-                i += 1
-            else:
-                # keep last stage but inch forward slowly without hitting 100
-                current = stages[-1][0]
-                progress_bar.progress(min(current + (i - len(stages)) * 2, 97), text=stages[-1][1])
-            thread.join(timeout=1.5)
-
-        if "error" in result:
-            err_str = result["error"]
-            progress_bar.empty()
+        if err_str:
             if "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
                 st.error("❌ Invalid API key. Please check your key in the sidebar and try again.")
             elif "429" in err_str or "quota" in err_str.lower():
-                st.error(f"❌ Rate limit / quota exceeded:\n\n{err_str}")
+                st.error(
+                    "⚠️ **Google AI Free Tier Restriction Detected**\n\n"
+                    "Your free API key works locally, but Google blocks free requests originating from Streamlit's US hosting cloud servers (Setting your limit to 0).\n\n"
+                    "**How to Fix This:**\n"
+                    "1. Go to your **Google AI Studio** Dashboard.\n"
+                    "2. Link a card and upgrade your project to a **Pay-as-you-go** plan.\n"
+                    "*(Don't worry, Gemini 2.0 Flash is incredibly cheap. It costs less than ₹0.10 per search, so your testing will likely cost under ₹10-20 total!)*"
+                )
             else:
                 st.error(f"Something went wrong: {err_str}")
         else:
-            progress_bar.progress(100, text="✅ Done! Here's your plan...")
-            plan_text = result["text"]
-            progress_bar.empty()
-
             st.markdown("---")
             st.subheader("📋 Your Personalised Plan")
 
