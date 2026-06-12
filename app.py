@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+import requests
 
 # ---------------------------------------------------------
 # CONFIG
@@ -29,8 +29,43 @@ if not GEMINI_API_KEY:
     st.error("⚠️ No Gemini API key available. Enter your own key in the sidebar, or the app owner must add GEMINI_API_KEY in Streamlit Secrets.")
     st.stop()
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+
+
+def call_gemini_api(prompt, api_key):
+    """Call Gemini REST API directly. Returns (text, error)."""
+    headers = {"Content-Type": "application/json"}
+    params = {"key": api_key}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.8, "maxOutputTokens": 3000},
+    }
+    try:
+        resp = requests.post(GEMINI_URL, headers=headers, params=params, json=payload, timeout=90)
+    except requests.exceptions.RequestException as e:
+        return None, f"Network error: {e}"
+
+    if resp.status_code != 200:
+        try:
+            err_json = resp.json()
+            msg = err_json.get("error", {}).get("message", resp.text)
+        except Exception:
+            msg = resp.text
+        return None, f"{resp.status_code} - {msg}"
+
+    data = resp.json()
+    try:
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return None, "No response generated. The prompt may have been blocked. Try rephrasing your inputs."
+        parts = candidates[0].get("content", {}).get("parts", [])
+        text = "".join(p.get("text", "") for p in parts)
+        if not text:
+            return None, "Empty response received. Please try again."
+        return text, None
+    except Exception as e:
+        return None, f"Failed to parse response: {e}"
 
 # ---------------------------------------------------------
 # STYLES
@@ -190,12 +225,12 @@ if submitted:
         result = {}
 
         def call_gemini():
-            try:
-                prompt = build_prompt()
-                response = model.generate_content(prompt)
-                result["text"] = response.text
-            except Exception as e:
-                result["error"] = e
+            prompt = build_prompt()
+            text, error = call_gemini_api(prompt, GEMINI_API_KEY)
+            if error:
+                result["error"] = error
+            else:
+                result["text"] = text
 
         thread = threading.Thread(target=call_gemini)
         thread.start()
@@ -213,12 +248,14 @@ if submitted:
             thread.join(timeout=1.5)
 
         if "error" in result:
-            err_str = str(result["error"])
+            err_str = result["error"]
             progress_bar.empty()
             if "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
                 st.error("❌ Invalid API key. Please check your key in the sidebar and try again.")
+            elif "429" in err_str or "quota" in err_str.lower():
+                st.error(f"❌ Rate limit / quota exceeded:\n\n{err_str}")
             else:
-                st.error(f"Something went wrong: {result['error']}")
+                st.error(f"Something went wrong: {err_str}")
         else:
             progress_bar.progress(100, text="✅ Done! Here's your plan...")
             plan_text = result["text"]
