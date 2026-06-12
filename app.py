@@ -1,5 +1,5 @@
 import streamlit as st
-import requests
+from groq import Groq
 
 # ---------------------------------------------------------
 # CONFIG
@@ -11,61 +11,54 @@ st.set_page_config(
 )
 
 # API key: default from secrets, or user can provide their own
-default_key = st.secrets.get("GEMINI_API_KEY", "")
+default_key = st.secrets.get("GROQ_API_KEY", "")
 
 with st.sidebar:
     st.header("🔑 API Key")
     user_key = st.text_input(
-        "Use your own Gemini API key (optional)",
+        "Use your own Groq API key (optional)",
         type="password",
-        placeholder="AIza...",
-        help="Get a free key at aistudio.google.com/app/apikey. Leave blank to use the app's default key."
+        placeholder="gsk_...",
+        help="Get a free key at console.groq.com. Leave blank to use the app's default key."
     )
     st.caption("Your key is only used for this session and never stored.")
 
-GEMINI_API_KEY = user_key.strip() if user_key.strip() else default_key
+GROQ_API_KEY = user_key.strip() if user_key.strip() else default_key
 
-if not GEMINI_API_KEY:
-    st.error("⚠️ No Gemini API key available. Enter your own key in the sidebar, or the app owner must add GEMINI_API_KEY in Streamlit Secrets.")
+if not GROQ_API_KEY:
+    st.error("⚠️ No Groq API key available. Enter your own key in the sidebar, or the app owner must add GROQ_API_KEY in Streamlit Secrets.")
     st.stop()
 
-GEMINI_MODEL = "gemini-2.0-flash"
-GEMINI_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+# Using Llama 3.3 70B - an incredibly powerful, fast, and free-tier model on Groq
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
-def call_gemini_api(prompt, api_key):
-    """Call Gemini REST API directly. Returns (text, error)."""
-    headers = {"Content-Type": "application/json"}
-    params = {"key": api_key}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.8, "maxOutputTokens": 3000},
-    }
+def call_groq_api(prompt, api_key):
+    """Call Groq API directly using the official python library. Returns (text, error)."""
     try:
-        resp = requests.post(GEMINI_URL, headers=headers, params=params, json=payload, timeout=90)
-    except requests.exceptions.RequestException as e:
-        return None, f"Network error: {e}"
-
-    if resp.status_code != 200:
-        try:
-            err_json = resp.json()
-            msg = err_json.get("error", {}).get("message", resp.text)
-        except Exception:
-            msg = resp.text
-        return None, f"{resp.status_code} - {msg}"
-
-    data = resp.json()
-    try:
-        candidates = data.get("candidates", [])
-        if not candidates:
-            return None, "No response generated. The prompt may have been blocked. Try rephrasing your inputs."
-        parts = candidates[0].get("content", {}).get("parts", [])
-        text = "".join(p.get("text", "") for p in parts)
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are TripMate AI — an expert budget travel planner for Indian students. You specialize in cost-cutting, local student hacks, and highly practical itineraries."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.7,
+            max_tokens=3500,
+        )
+        text = completion.choices[0].message.content
         if not text:
-            return None, "Empty response received. Please try again."
+            return None, "Empty response received from the AI model. Please try again."
         return text, None
     except Exception as e:
-        return None, f"Failed to parse response: {e}"
+        return None, f"Groq API Error: {str(e)}"
+
 
 # ---------------------------------------------------------
 # STYLES
@@ -90,7 +83,7 @@ st.markdown("""
 # HEADER
 # ---------------------------------------------------------
 st.title("✈️ TripMate AI")
-st.caption("Smart, budget-friendly travel plans for students — powered by Gemini")
+st.caption("Smart, budget-friendly travel plans for students — powered by Groq Cloud")
 
 st.markdown("---")
 
@@ -148,9 +141,7 @@ def build_prompt():
         else "4 general safety tips for this destination."
     )
 
-    return f"""You are TripMate AI — an expert budget travel planner for Indian students.
-
-Create a DETAILED, PRACTICAL travel plan for:
+    return f"""Create a DETAILED, PRACTICAL travel plan for an Indian student traveler:
 - Gender: {gender}
 - Age: {age} years old
 - Travelling with: {travel_with}
@@ -211,25 +202,13 @@ if submitted:
     elif budget < 500:
         st.error("Please enter a valid budget.")
     else:
-        # Replaced threading with native st.spinner to prevent connection hangs on hosted clouds
+        # Replaced the bug-prone manual threading layout with a reliable, clean st.spinner
         with st.spinner("🧳 TripMate AI is building your custom budget travel plan..."):
             prompt = build_prompt()
-            plan_text, err_str = call_gemini_api(prompt, GEMINI_API_KEY)
+            plan_text, err_str = call_groq_api(prompt, GROQ_API_KEY)
 
         if err_str:
-            if "API_KEY_INVALID" in err_str or "API key not valid" in err_str:
-                st.error("❌ Invalid API key. Please check your key in the sidebar and try again.")
-            elif "429" in err_str or "quota" in err_str.lower():
-                st.error(
-                    "⚠️ **Google AI Free Tier Restriction Detected**\n\n"
-                    "Your free API key works locally, but Google blocks free requests originating from Streamlit's US hosting cloud servers (Setting your limit to 0).\n\n"
-                    "**How to Fix This:**\n"
-                    "1. Go to your **Google AI Studio** Dashboard.\n"
-                    "2. Link a card and upgrade your project to a **Pay-as-you-go** plan.\n"
-                    "*(Don't worry, Gemini 2.0 Flash is incredibly cheap. It costs less than ₹0.10 per search, so your testing will likely cost under ₹10-20 total!)*"
-                )
-            else:
-                st.error(f"Something went wrong: {err_str}")
+            st.error(f"Something went wrong: {err_str}")
         else:
             st.markdown("---")
             st.subheader("📋 Your Personalised Plan")
@@ -266,4 +245,4 @@ Generated by TripMate AI
             )
 
 st.markdown("---")
-st.caption("Made with ❤️ for students | Powered by Google Gemini")
+st.caption("Made with ❤️ for students | Powered by Groq Cloud & Llama 3.3")
