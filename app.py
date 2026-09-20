@@ -30,7 +30,7 @@ if not GROQ_API_KEY:
     st.stop()
 
 # Using Llama 3.3 70B - an incredibly powerful, fast, and free-tier model on Groq
-GROQ_MODEL = "GROQ_MODEL = "openai/gpt-oss-120b""
+GROQ_MODEL = GROQ_MODEL = "openai/gpt-oss-120b"
 
 
 def call_groq_api(prompt, api_key):
